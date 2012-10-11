@@ -33,16 +33,19 @@ import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
-
+import logging
 __all__ = ['ProxyHandler', 'run_proxy']
 
 
 class ProxyHandler(tornado.web.RequestHandler):
     SUPPORTED_METHODS = ['GET', 'POST', 'CONNECT']
 
+    def initialize(self, host):
+	self.host = host
+	self.url = 'http://'+host+self.request.uri
+
     @tornado.web.asynchronous
     def get(self):
-
         def handle_response(response):
             if response.error and not isinstance(response.error,
                     tornado.httpclient.HTTPError):
@@ -58,16 +61,18 @@ class ProxyHandler(tornado.web.RequestHandler):
                         self.set_header(header, v)
                 if response.body:
                     self.write(response.body)
-                self.finish()
-
-        req = tornado.httpclient.HTTPRequest(url=self.request.uri,
+		self.finish()
+       
+	self.request.headers.pop("Host")
+	self.request.headers.pop("Referer")
+	self.request.headers.parse_line('Host: '+ self.host)
+	req = tornado.httpclient.HTTPRequest(url=self.url,
             method=self.request.method, body=self.request.body,
-            headers=self.request.headers, follow_redirects=False,
+            headers=self.request.headers, follow_redirects=True,
             allow_nonstandard_methods=True)
-
-        client = tornado.httpclient.AsyncHTTPClient()
-        try:
-            client.fetch(req, handle_response)
+	client = tornado.httpclient.AsyncHTTPClient()
+	try:
+	    client.fetch(req, handle_response)
         except tornado.httpclient.HTTPError, e:
             if hasattr(e, 'response') and e.response:
                 self.handle_response(e.response)
@@ -83,8 +88,8 @@ class ProxyHandler(tornado.web.RequestHandler):
     @tornado.web.asynchronous
     def connect(self):
         host, port = self.request.uri.split(':')
-        client = self.request.connection.stream
-
+	client = self.request.connection.stream
+	
         def read_from_client(data):
             upstream.write(data)
 
